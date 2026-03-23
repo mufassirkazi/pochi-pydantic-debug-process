@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Image Generator</title>
+    <style>
+      /* ── Reset & Tokens ──────────────────────────────────────────── */
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+      :root {
+        --bg:        #0a0a12;
+        --surface:   #12121e;
+        --surface2:  #1a1a2e;
+        --border:    rgba(255,255,255,.08);
+        --accent:    #7c3aed;
+        --accent-h:  #6d28d9;
+        --accent-g:  linear-gradient(135deg, #7c3aed 0%, #2563eb 100%);
+        --text:      #f1f0f9;
+        --muted:     #8b8aa3;
+        --radius:    16px;
+        --shadow:    0 24px 64px rgba(0,0,0,.6);
+      }
+
+      body {
+        font-family: 'Inter', system-ui, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 2rem 1rem 4rem;
+      }
+
+      /* ── Background glow ─────────────────────────────────────────── */
+      body::before {
+        content: '';
+        position: fixed;
+        inset: 0;
+        background:
+          radial-gradient(ellipse 80% 50% at 20% 0%, rgba(124,58,237,.18) 0%, transparent 60%),
+          radial-gradient(ellipse 60% 40% at 80% 100%, rgba(37,99,235,.15) 0%, transparent 60%);
+        pointer-events: none;
+        z-index: 0;
+      }
+
+      /* ── Layout ──────────────────────────────────────────────────── */
+      .wrapper {
+        position: relative;
+        z-index: 1;
+        width: 100%;
+        max-width: 780px;
+        display: flex;
+        flex-direction: column;
+        gap: 2rem;
+      }
+
+      /* ── Header ──────────────────────────────────────────────────── */
+      header {
+        text-align: center;
+        padding-top: 1rem;
+      }
+
+      .logo {
+        display: inline-flex;
+        align-items: center;
+        gap: .6rem;
+        margin-bottom: 1rem;
+      }
+
+      .logo-icon {
+        width: 42px; height: 42px;
+        background: var(--accent-g);
+        border-radius: 12px;
+        display: grid; place-items: center;
+        font-size: 1.3rem;
+        box-shadow: 0 0 24px rgba(124,58,237,.5);
+      }
+
+      h1 {
+        font-size: clamp(1.8rem, 5vw, 2.6rem);
+        font-weight: 800;
+        letter-spacing: -.03em;
+        background: linear-gradient(135deg, #fff 30%, #a78bfa);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+
+      .subtitle {
+        color: var(--muted);
+        font-size: .95rem;
+        margin-top: .4rem;
+      }
+
+      /* ── Card ────────────────────────────────────────────────────── */
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 2rem;
+        box-shadow: var(--shadow);
+      }
+
+      /* ── Input group ─────────────────────────────────────────────── */
+      .input-group {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+
+      label {
+        font-size: .85rem;
+        font-weight: 600;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: .08em;
+      }
+
+      textarea {
+        width: 100%;
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        color: var(--text);
+        font-size: 1rem;
+        line-height: 1.6;
+        padding: 1rem 1.2rem;
+        resize: none;
+        min-height: 110px;
+        transition: border-color .2s, box-shadow .2s;
+        font-family: inherit;
+        outline: none;
+      }
+
+      textarea::placeholder { color: var(--muted); }
+
+      textarea:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(124,58,237,.25);
+      }
+
+      /* ── Button ──────────────────────────────────────────────────── */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: .6rem;
+        background: var(--accent-g);
+        color: #fff;
+        border: none;
+        border-radius: 12px;
+        padding: .9rem 2rem;
+        font-size: 1rem;
+        font-weight: 700;
+        cursor: pointer;
+        transition: opacity .2s, transform .15s, box-shadow .2s;
+        box-shadow: 0 4px 20px rgba(124,58,237,.45);
+        align-self: flex-end;
+        letter-spacing: .01em;
+      }
+
+      .btn:hover:not(:disabled) {
+        opacity: .9;
+        transform: translateY(-1px);
+        box-shadow: 0 8px 28px rgba(124,58,237,.55);
+      }
+
+      .btn:active:not(:disabled) { transform: translateY(0); }
+
+      .btn:disabled {
+        opacity: .55;
+        cursor: not-allowed;
+        transform: none;
+      }
+
+      /* ── Spinner ─────────────────────────────────────────────────── */
+      @keyframes spin { to { transform: rotate(360deg); } }
+
+      .spinner {
+        width: 18px; height: 18px;
+        border: 2.5px solid rgba(255,255,255,.3);
+        border-top-color: #fff;
+        border-radius: 50%;
+        animation: spin .7s linear infinite;
+        display: none;
+      }
+
+      .loading .spinner { display: block; }
+      .loading .btn-text { display: none; }
+      .loading .btn-icon { display: none; }
+
+      /* ── Result area ─────────────────────────────────────────────── */
+      #result-area {
+        display: none;
+        flex-direction: column;
+        gap: 1.2rem;
+      }
+
+      #result-area.visible { display: flex; }
+
+      .result-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: .6rem;
+      }
+
+      .result-title {
+        font-size: 1rem;
+        font-weight: 700;
+        color: var(--text);
+      }
+
+      .badge {
+        font-size: .75rem;
+        font-weight: 600;
+        padding: .3rem .75rem;
+        border-radius: 99px;
+        background: rgba(124,58,237,.2);
+        color: #a78bfa;
+        border: 1px solid rgba(124,58,237,.3);
+      }
+
+      .image-wrapper {
+        border-radius: 14px;
+        overflow: hidden;
+        border: 1px solid var(--border);
+        background: var(--surface2);
+        position: relative;
+        min-height: 200px;
+      }
+
+      #generated-image {
+        width: 100%;
+        display: block;
+        border-radius: 14px;
+        transition: opacity .4s;
+      }
+
+      .prompt-used {
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: .85rem 1rem;
+        font-size: .88rem;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+
+      .prompt-used strong { color: var(--text); }
+
+      .meta-row {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
+      }
+
+      .meta-pill {
+        display: flex;
+        align-items: center;
+        gap: .35rem;
+        font-size: .8rem;
+        color: var(--muted);
+      }
+
+      .meta-pill svg { opacity: .6; }
+
+      .download-btn {
+        margin-left: auto;
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--muted);
+        border-radius: 8px;
+        padding: .4rem .9rem;
+        font-size: .82rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: border-color .2s, color .2s;
+        font-family: inherit;
+      }
+
+      .download-btn:hover { border-color: var(--accent); color: #a78bfa; }
+
+      /* ── Error state ─────────────────────────────────────────────── */
+      #error-area {
+        display: none;
+        align-items: center;
+        gap: .7rem;
+        background: rgba(239,68,68,.1);
+        border: 1px solid rgba(239,68,68,.3);
+        border-radius: 12px;
+        padding: 1rem 1.2rem;
+        color: #fca5a5;
+        font-size: .9rem;
+      }
+
+      #error-area.visible { display: flex; }
+
+      /* ── Skeleton loader ─────────────────────────────────────────── */
+      @keyframes shimmer {
+        0%   { background-position: -600px 0; }
+        100% { background-position:  600px 0; }
+      }
+
+      .skeleton {
+        display: none;
+        border-radius: 14px;
+        overflow: hidden;
+        height: 420px;
+        background: linear-gradient(90deg,
+          var(--surface2) 25%,
+          rgba(255,255,255,.05) 50%,
+          var(--surface2) 75%
+        );
+        background-size: 600px 100%;
+        animation: shimmer 1.4s infinite;
+      }
+
+      .skeleton.visible { display: block; }
+
+      /* ── Prompt suggestions ──────────────────────────────────────── */
+      .suggestions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .5rem;
+      }
+
+      .chip {
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        color: var(--muted);
+        border-radius: 99px;
+        padding: .35rem .9rem;
+        font-size: .78rem;
+        cursor: pointer;
+        transition: border-color .2s, color .2s, background .2s;
+        font-family: inherit;
+      }
+
+      .chip:hover {
+        border-color: var(--accent);
+        color: #c4b5fd;
+        background: rgba(124,58,237,.1);
+      }
+
+      /* ── Footer ──────────────────────────────────────────────────── */
+      footer {
+        text-align: center;
+        font-size: .8rem;
+        color: var(--muted);
+        margin-top: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrapper">
+
+      <!-- Header -->
+      <header>
+        <div class="logo">
+          <div class="logo-icon">✦</div>
+        </div>
+        <h1>AI Image Generator</h1>
+        <p class="subtitle">Turn your imagination into stunning visuals with DALL·E 3</p>
+      </header>
+
+      <!-- Input card -->
+      <div class="card">
+        <div class="input-group">
+          <label for="prompt-input">Describe your image</label>
+          <textarea
+            id="prompt-input"
+            placeholder="A serene Japanese garden at dusk with cherry blossoms falling into a koi pond, soft golden light…"
+            rows="4"
+          ></textarea>
+
+          <div class="suggestions" id="suggestions">
+            <button class="chip" data-prompt="A futuristic neon-lit city at midnight with flying cars and holographic billboards">Futuristic city</button>
+            <button class="chip" data-prompt="A majestic dragon perched on a mountain peak at sunrise, watercolor style">Fantasy dragon</button>
+            <button class="chip" data-prompt="A cozy cabin in a snowy forest with warm lights glowing through frost-covered windows">Cozy cabin</button>
+            <button class="chip" data-prompt="Underwater kingdom with bioluminescent coral and mythical sea creatures, cinematic lighting">Underwater kingdom</button>
+            <button class="chip" data-prompt="An astronaut floating in space above a purple alien planet, photorealistic">Space explorer</button>
+          </div>
+
+          <button class="btn" id="generate-btn" type="button">
+            <svg class="btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14 2 9.27l6.91-1.01L12 2z"/>
+            </svg>
+            <span class="btn-text">Generate Image</span>
+            <div class="spinner"></div>
+          </button>
+        </div>
+      </div>
+
+      <!-- Error area -->
+      <div id="error-area">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        <span id="error-message">Something went wrong. Please try again.</span>
+      </div>
+
+      <!-- Result area -->
+      <div id="result-area" class="card">
+        <div class="result-header">
+          <span class="result-title">Generated Image</span>
+          <span class="badge" id="model-badge">DALL·E 3 · 1024×1024</span>
+        </div>
+
+        <!-- Skeleton loader -->
+        <div class="skeleton" id="skeleton"></div>
+
+        <!-- Actual image -->
+        <div class="image-wrapper" id="image-wrapper" style="display:none">
+          <img id="generated-image" src="" alt="AI generated image" />
+        </div>
+
+        <!-- Prompt used -->
+        <div class="prompt-used" id="prompt-used-box">
+          <strong>Prompt:</strong> <span id="prompt-used-text"></span>
+        </div>
+
+        <!-- Meta row -->
+        <div class="meta-row">
+          <div class="meta-pill">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+            </svg>
+            <span id="response-time">–</span>
+          </div>
+          <button class="download-btn" id="download-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            Download
+          </button>
+        </div>
+      </div>
+
+      <footer>Powered by OpenAI DALL·E 3 &nbsp;·&nbsp; Observed with Pydantic Logfire</footer>
+    </div>
+
+    <script>
+      const API_BASE = 'http://localhost:8000';
+
+      const promptInput   = document.getElementById('prompt-input');
+      const generateBtn   = document.getElementById('generate-btn');
+      const resultArea    = document.getElementById('result-area');
+      const errorArea     = document.getElementById('error-area');
+      const errorMessage  = document.getElementById('error-message');
+      const skeleton      = document.getElementById('skeleton');
+      const imageWrapper  = document.getElementById('image-wrapper');
+      const generatedImg  = document.getElementById('generated-image');
+      const promptUsedTxt = document.getElementById('prompt-used-text');
+      const responseTime  = document.getElementById('response-time');
+      const downloadBtn   = document.getElementById('download-btn');
+
+      // ── Prompt suggestion chips ──────────────────────────────────────────
+      document.getElementById('suggestions').addEventListener('click', (e) => {
+        const chip = e.target.closest('.chip');
+        if (!chip) return;
+        promptInput.value = chip.dataset.prompt;
+        promptInput.focus();
+      });
+
+      // ── Generate ─────────────────────────────────────────────────────────
+      generateBtn.addEventListener('click', generateImage);
+
+      promptInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) generateImage();
+      });
+
+      async function generateImage() {
+        const prompt = promptInput.value.trim();
+        if (!prompt) {
+          promptInput.focus();
+          promptInput.style.borderColor = '#ef4444';
+          setTimeout(() => (promptInput.style.borderColor = ''), 1500);
+          return;
+        }
+
+        setLoading(true);
+        clearError();
+        showSkeleton();
+
+        try {
+          const res = await fetch(`${API_BASE}/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt }),
+          });
+
+          const data = await res.json();
+
+          if (!res.ok) {
+            throw new Error(data.detail || `Server error ${res.status}`);
+          }
+
+          displayImage(data);
+        } catch (err) {
+          hideSkeleton();
+          showError(err.message || 'Network error – is the backend running?');
+        } finally {
+          setLoading(false);
+        }
+      }
+
+      // ── UI helpers ────────────────────────────────────────────────────────
+      function setLoading(on) {
+        if (on) {
+          generateBtn.disabled = true;
+          generateBtn.closest('.input-group').classList.add('loading');
+          generateBtn.classList.add('loading');
+        } else {
+          generateBtn.disabled = false;
+          generateBtn.closest('.input-group').classList.remove('loading');
+          generateBtn.classList.remove('loading');
+        }
+      }
+
+      function showSkeleton() {
+        resultArea.classList.add('visible');
+        skeleton.classList.add('visible');
+        imageWrapper.style.display = 'none';
+        document.getElementById('prompt-used-box').style.visibility = 'hidden';
+        document.querySelector('.meta-row').style.visibility = 'hidden';
+      }
+
+      function hideSkeleton() {
+        skeleton.classList.remove('visible');
+      }
+
+      function displayImage(data) {
+        hideSkeleton();
+
+        if (!data.image_url) {
+          showImageError('Failed to load image');
+          promptUsedTxt.textContent = data.prompt;
+          responseTime.textContent  = `${(data.response_time_ms / 1000).toFixed(1)}s`;
+          document.getElementById('prompt-used-box').style.visibility = 'visible';
+          document.querySelector('.meta-row').style.visibility = 'visible';
+          return;
+        }
+
+        generatedImg.onload = () => {
+          imageWrapper.style.display = 'block';
+          document.getElementById('prompt-used-box').style.visibility = 'visible';
+          document.querySelector('.meta-row').style.visibility = 'visible';
+        };
+        generatedImg.src = data.image_url;
+
+        promptUsedTxt.textContent = data.prompt;
+        responseTime.textContent  = `${(data.response_time_ms / 1000).toFixed(1)}s`;
+
+        downloadBtn.onclick = () => {
+          const a = document.createElement('a');
+          a.href     = data.image_url;
+          a.target   = '_blank';
+          a.download = 'generated-image.png';
+          a.click();
+        };
+      }
+
+      function showImageError(msg) {
+        const existing = document.getElementById('image-error-banner');
+        if (existing) existing.remove();
+
+        const banner = document.createElement('div');
+        banner.id = 'image-error-banner';
+        banner.innerHTML = `
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/>
+          </svg>
+          <span>${msg}</span>
+        `;
+        Object.assign(banner.style, {
+          display:        'flex',
+          alignItems:     'center',
+          gap:            '10px',
+          background:     'rgba(239,68,68,.12)',
+          border:         '1px solid rgba(239,68,68,.35)',
+          borderRadius:   '12px',
+          padding:        '1.1rem 1.3rem',
+          color:          '#fca5a5',
+          fontSize:       '.92rem',
+          fontWeight:     '500',
+          marginBottom:   '.25rem',
+        });
+
+        const imageWrap = document.getElementById('image-wrapper');
+        imageWrap.style.display = 'none';
+        imageWrap.parentNode.insertBefore(banner, imageWrap);
+      }
+
+      function showError(msg) {
+        errorMessage.textContent = msg;
+        errorArea.classList.add('visible');
+        resultArea.classList.remove('visible');
+      }
+
+      function clearError() {
+        errorArea.classList.remove('visible');
+      }
+    </script>
+  </body>
+</html>
